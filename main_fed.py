@@ -9,16 +9,30 @@ import copy
 import numpy as np
 from torchvision import datasets, transforms
 import torch
+import gc
+import os
+import pickle
+import requests
 
-from utils.sampling import mnist_iid, mnist_noniid, cifar_iid
+from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, fashionMnist_iid, fashionMnist_noniid
 from utils.options import args_parser
 from models.Update import LocalUpdate
-from models.Nets import MLP, CNNMnist, CNNCifar
+from models.Nets import MLP, CNNMnist, CNNCifar, resnet18
 from models.Fed import FedAvg
 from models.test import test_img
+import time
 
+def getGlobalModel(taskid, round):
+    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.87 Safari/537.36',}
+    url = 'http://127.0.0.1:9001/tee/getGlobalModel'
+    params = {'taskid':taskid, 'round':round}
+    response = requests.post(url=url, json=params, headers=headers).text
+    return response
 
 if __name__ == '__main__':
+    gc.collect()
+    torch.cuda.empty_cache()
+    start = time.time()
     # parse args
     args = args_parser()
     args.device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
@@ -41,6 +55,26 @@ if __name__ == '__main__':
             dict_users = cifar_iid(dataset_train, args.num_users)
         else:
             exit('Error: only consider IID setting in CIFAR10')
+    elif args.dataset == 'fashion_mnist':
+        trans_fashionMnist = transforms.Compose([transforms.ToTensor(), transforms.Normalize([0.5], [0.5])])
+        dataset_train = datasets.FashionMNIST('../data/fashion_mnist', train=True, download=True, transform=trans_fashionMnist)
+        dataset_test = datasets.FashionMNIST('../data/fashion_mnist', train=False, download=True, transform=trans_fashionMnist)
+        
+        if args.iid:
+            dict_users = fashionMnist_iid(dataset_train, args.num_users)
+        else:
+            dict_users = fashionMnist_noniid(dataset_train, args.num_users)
+    elif args.dataset == 'mini_imagenet':
+        trans_cifar = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+        dataset_train = datasets.CIFAR10('../../../data/cifar', train=True, download=True, transform=trans_cifar)
+        dataset_test = datasets.CIFAR10('../data/cifar', train=False, download=True, transform=trans_cifar)
+        if args.iid:
+            dict_users = cifar_iid(dataset_train, args.num_users)
+        else:
+            exit('Error: only consider IID setting in CIFAR10')
+    # elif args.dataset == "imdb":
+    #     trans_imdb = transforms.Compose([transforms.ToTensor(), transforms.Normalize()])
+    #     dataset_train = datasets.IMDB()
     else:
         exit('Error: unrecognized dataset')
     img_size = dataset_train[0][0].shape
@@ -50,6 +84,10 @@ if __name__ == '__main__':
         net_glob = CNNCifar(args=args).to(args.device)
     elif args.model == 'cnn' and args.dataset == 'mnist':
         net_glob = CNNMnist(args=args).to(args.device)
+    elif args.model == 'resnet18' and args.dataset == 'cifar':
+        net_glob = resnet18(10, False).to(args.device)
+    elif args.model == 'resnet18' and args.dataset == 'fashion_mnist':
+        net_glob = resnet18(10, True).to(args.device)
     elif args.model == 'mlp':
         len_in = 1
         for x in img_size:
@@ -83,6 +121,23 @@ if __name__ == '__main__':
         for idx in idxs_users:
             local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx])
             w, loss = local.train(net=copy.deepcopy(net_glob).to(args.device))
+            print(type(w))
+            # # f = open('./wh/'+str(idx)+'.txt', 'wb+')
+            # # f.write(w)
+            # print(w)
+            # torch.save(w, './wh/'+str(idx)+'.pt')
+            w_copy = copy.deepcopy(w)
+            w_shape = []
+            for (k,v) in w_copy.items():
+                v1_shape = w_copy[k].shape
+                w_shape.append(v1_shape)
+                print(w_shape)
+                v1 = w_copy[k].flatten().numpy()
+                w_str = ','.join(str(x) for x in v1)
+                f = open('./wh/'+str(iter)+'_'+str(idx)+'_'+str(k)+'.txt', 'w+', encoding='utf-8')
+                # f = open('./wh/'+'test.txt', 'w+', encoding='utf-8')
+                f.write(w_str)
+            
             if args.all_clients:
                 w_locals[idx] = copy.deepcopy(w)
             else:
@@ -90,13 +145,26 @@ if __name__ == '__main__':
             loss_locals.append(copy.deepcopy(loss))
         # update global weights
         w_glob = FedAvg(w_locals)
-
+        
+        ####### 获取链上的新的globalModel并解析成原来的Tensor格式，生成w_glob#########
+        # w_glob_str = getGlobalModel('123', str(iter)).text
+        # w_glob_json = json.loads(w_glob_str)
+        # w_glob = w_glob_json['result']
+        # w_glob_feature_json = json.loads(w_glob)
+        # for i in w_shape.len():
+        #   w_glob_feature_i = w_glob_feature_json[0]
+        #   w_glob_feature_data=w_glob_feature['data']
+        #   w_glob_feature_ndarray = np.array(w_glob_feature_data)
+        #   w_glob_feature_tensor = w_glob_feature_ndarray.reshape(w_shape[i])
+        #   w[list(w.keys())[i]] = w_glob_feature_tensor
+        #w_glob = w
+    
         # copy weight to net_glob
         net_glob.load_state_dict(w_glob)
 
         # print loss
         loss_avg = sum(loss_locals) / len(loss_locals)
-        print('Round {:3d}, Average loss {:.3f}'.format(iter, loss_avg))
+        print('Round {:3d}, Average loss {:.3f}'.format(iter+1, loss_avg))
         loss_train.append(loss_avg)
 
     # plot loss curve
@@ -105,6 +173,9 @@ if __name__ == '__main__':
     plt.ylabel('train_loss')
     plt.savefig('./save/fed_{}_{}_{}_C{}_iid{}.png'.format(args.dataset, args.model, args.epochs, args.frac, args.iid))
 
+    # save model
+    PATH = './model/'
+    torch.save(net_glob.state_dict(), PATH + args.dataset + '.pth')
     # testing
     net_glob.eval()
     acc_train, loss_train = test_img(net_glob, dataset_train, args)
@@ -112,3 +183,5 @@ if __name__ == '__main__':
     print("Training accuracy: {:.2f}".format(acc_train))
     print("Testing accuracy: {:.2f}".format(acc_test))
 
+    end = time.time()
+    print("time is: {:.3f}".format(end - start))

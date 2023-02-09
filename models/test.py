@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 
 def test_img(net_g, datatest, args):
     net_g.eval()
+    
     # testing
     test_loss = 0
     correct = 0
@@ -18,6 +19,7 @@ def test_img(net_g, datatest, args):
     for idx, (data, target) in enumerate(data_loader):
         if args.gpu != -1:
             data, target = data.cuda(), target.cuda()
+        # log_probs, x = net_g(data)
         log_probs = net_g(data)
         # sum up batch loss
         test_loss += F.cross_entropy(log_probs, target, reduction='sum').item()
