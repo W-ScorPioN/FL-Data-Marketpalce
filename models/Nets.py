@@ -7,6 +7,43 @@ from torch import nn
 import torch.nn.functional as F
 
 
+import torch  
+import torch.nn as nn  
+  
+class AlexNet(nn.Module):  
+    def __init__(self, num_classes):  
+        super(AlexNet, self).__init__()  
+        self.features = nn.Sequential(  
+            nn.Conv2d(3, 32, kernel_size=3, padding=1),  
+            nn.ReLU(inplace=True),  
+            nn.Conv2d(32, 32, kernel_size=3, padding=1),  
+            nn.ReLU(inplace=True),  
+            nn.MaxPool2d(kernel_size=2),  
+            nn.Dropout(0.25),  
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),  
+            nn.ReLU(inplace=True),  
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),  
+            nn.ReLU(inplace=True),  
+            nn.MaxPool2d(kernel_size=2),  
+            nn.Dropout(0.25),  
+        )  
+  
+        self.classifier = nn.Sequential(  
+            nn.Linear(64 * 8 * 8, 512),  
+            nn.ReLU(inplace=True),  
+            nn.Dropout(0.5),  
+            nn.Linear(512, num_classes)  
+        )  
+  
+    def forward(self, x):  
+        x = self.features(x)  
+        x = x.view(x.size(0), -1)  # Flatten the tensor  
+        x = self.classifier(x)  
+        return x
+  
+ 
+
+
 class MLP(nn.Module):
     def __init__(self, dim_in, dim_hidden, dim_out):
         super(MLP, self).__init__()
@@ -71,7 +108,6 @@ def conv3x3(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
 
-
 class BasicBlock(nn.Module):
     expansion = 1
 
@@ -124,16 +160,17 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.avgpool = nn.AvgPool2d(7, stride=1)
+        # self.avgpool = nn.AvgPool2d(7, stride=1)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, (2. / n)**.5)
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+        # for m in self.modules():
+        #     if isinstance(m, nn.Conv2d):
+        #         n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        #         m.weight.data.normal_(0, (2. / n)**.5)
+        #     elif isinstance(m, nn.BatchNorm2d):
+        #         m.weight.data.fill_(1)
+        #         m.bias.data.zero_()
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
@@ -164,22 +201,22 @@ class ResNet(nn.Module):
         x = self.layer4(x)
         # because MNIST is already 1x1 here:
         # disable avg pooling
-        #x = self.avgpool(x)
-        
+
+        x = self.avgpool(x)
         x = x.view(x.size(0), -1)
-        logits = self.fc(x)
-        probas = F.softmax(logits, dim=1)
-        return logits, probas
+        x = self.fc(x)
+        # probas = F.softmax(logits, dim=1)
+        # return logits, probas
+        return x
 
 
-
-def resnet18(num_classes, GRAYSCALE):
-    """Constructs a ResNet-18 model."""
-    model = ResNet(block=BasicBlock, 
-                   layers=[2, 2, 2, 2],
-                   num_classes=NUM_CLASSES,
-                   grayscale=GRAYSCALE)
-    return model
+# def resnet18(num_classes, GRAYSCALE):
+#     """Constructs a ResNet-18 model."""
+#     model = ResNet(block=BasicBlock, 
+#                    layers=[2, 2, 2, 2],
+#                    num_classes=NUM_CLASSES,
+#                    grayscale=GRAYSCALE)
+#     return model
 
 
 """ 
@@ -187,5 +224,25 @@ return a ResNet 18 object
 """
 def resnet18(num_classes, GRAYSCALE):
     return ResNet(BasicBlock, [2, 2, 2, 2], num_classes, GRAYSCALE)
+
+def resnet50(num_classes, GRAYSCALE):
+    return ResNet(BasicBlock, [3, 4, 6, 3], num_classes, GRAYSCALE)
+
+def resnet101(num_classes, GRAYSCALE):
+    return ResNet(BasicBlock, [3, 4, 23, 3], num_classes, GRAYSCALE)
+
+
+class MLPAdult(nn.Module):
+    def __init__(self):
+        super(MLPAdult, self).__init__()
+        self.fc1 = nn.Linear(107, 100)
+        self.fc2 = nn.Linear(100, 1)
+
+    def forward(self, x: torch.Tensor):
+        res = self.fc1(x)
+        res = torch.relu(res)
+        res = self.fc2(res)
+        res = res.view(-1)
+        return res
 
 

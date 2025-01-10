@@ -6,6 +6,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from sklearn.metrics import accuracy_score
 
 
 def test_img(net_g, datatest, args):
@@ -33,4 +34,28 @@ def test_img(net_g, datatest, args):
         print('\nTest set: Average loss: {:.4f} \nAccuracy: {}/{} ({:.2f}%)\n'.format(
             test_loss, correct, len(data_loader.dataset), accuracy))
     return accuracy, test_loss
+
+
+def test_tabular(net_g, datatest, args):  
+    net_g.eval()
+    dataloader = DataLoader(datatest, batch_size=args.local_bs)
+
+    count = len(dataloader)
+    total_loss = 0
+    pred_probs = []
+    true_ys = []
+    for _, (xs, ys) in enumerate(dataloader):
+        if args.gpu != -1:
+            xs, ys = xs.cuda(), ys.cuda()  
+        out = net_g(xs)
+        loss = torch.nn.BCEWithLogitsLoss()
+        loss_val = loss(out, ys)
+
+        pred_prob = torch.sigmoid(out)
+        pred_probs.extend(torch.flatten(pred_prob).tolist())
+        true_ys.extend(torch.flatten(ys).int().tolist())
+        total_loss += loss_val.item()
+    pred_ys = [int(p > 0.5) for p in pred_probs]
+    return accuracy_score(true_ys, pred_ys)*100, total_loss/count
+	
 

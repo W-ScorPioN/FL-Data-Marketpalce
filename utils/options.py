@@ -3,9 +3,15 @@
 # Python version: 3.6
 
 import argparse
+import datetime
+from utils.info import beijing
+import logging
 
 def args_parser():
+    logging.Formatter.converter = beijing
+    logtime = datetime.datetime.now()
     parser = argparse.ArgumentParser()
+
     # federated arguments
     parser.add_argument('--epochs', type=int, default=10, help="rounds of training")
     parser.add_argument('--num_users', type=int, default=100, help="number of users: K")
@@ -16,6 +22,11 @@ def args_parser():
     parser.add_argument('--lr', type=float, default=0.01, help="learning rate")
     parser.add_argument('--momentum', type=float, default=0.5, help="SGD momentum (default: 0.5)")
     parser.add_argument('--split', type=str, default='user', help="train-test split type, user or sample")
+    parser.add_argument('--poison_fraction', type=float, default=0.0, help="the fraction of poison")
+    parser.add_argument('--noise_level', type=float, default=0.0, help="the noise level of free-rider")
+    parser.add_argument('--n_clusters', type=int, default=2, help="number of cluster")
+    parser.add_argument('--similarity', type=str, default='cosine', help="Type of model similarity. cosine, euclidean, manhattan")
+
 
     # model arguments
     parser.add_argument('--model', type=str, default='mlp', help='model name')
@@ -36,6 +47,10 @@ def args_parser():
     parser.add_argument('--stopping_rounds', type=int, default=10, help='rounds of early stopping')
     parser.add_argument('--verbose', action='store_true', help='verbose print')
     parser.add_argument('--seed', type=int, default=1, help='random seed (default: 1)')
+    parser.add_argument('--num_run', type=int, default=1, help='The number of runnning times')
+    # parser.add_argument('--task_id', type=str, default='mnist', help="name of dataset")
+
     parser.add_argument('--all_clients', action='store_true', help='aggregation over all clients')
+    parser.add_argument('--task_id', type=str, default=str(logtime.year)+str(logtime.month)+str(logtime.day)+str(logtime.hour)+str(logtime.minute)+str(logtime.second), help='task id')
     args = parser.parse_args()
     return args
